@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Booking {
+  id        String   @id @default(cuid())
+  date      String
+  time      String
+  services  String
+  first     String
+  last      String?
+  phone     String
+  email     String?
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id              String   @id @default(cuid())
+  email           String
+  name            String?
+  phone           String?
+  status          String   @default("pending")
+  amount          Int
+  currency        String   @default("zar")
+  shippingName    String?
+  shippingPhone   String?
+  shippingAddr1   String?
+  shippingAddr2   String?
+  shippingCity    String?
+  shippingState   String?
+  shippingZip     String?
+  shippingCountry String?
+  stripeSessionId String?
+  createdAt       DateTime @default(now())
+
+  items           OrderItem[]
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  name       String
+  unitAmount Int
+  quantity   Int     @default(1)
+
+  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
