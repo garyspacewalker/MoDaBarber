@@ -1,4 +1,3 @@
-// middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -16,13 +15,8 @@ export function middleware(req: NextRequest) {
   const [, base64] = auth.split(' ');
   const [user, pass] = Buffer.from(base64, 'base64').toString().split(':');
 
-  if (user === process.env.BARBER_USER && pass === process.env.BARBER_PASS) {
-    return NextResponse.next();
-  }
-
+  if (user === process.env.BARBER_USER && pass === process.env.BARBER_PASS) return NextResponse.next();
   return new NextResponse('Unauthorized', { status: 401 });
 }
 
-export const config = {
-  matcher: ['/barber/:path*'],
-};
+export const config = { matcher: ['/barber/:path*'] };

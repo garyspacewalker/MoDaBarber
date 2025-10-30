@@ -1,23 +1,25 @@
-# Node / Next.js
+# deps
 node_modules/
+
+# next.js build
 .next/
 out/
-dist/
-*.log
+.vercel/
+
+# env & local config
+.env
+.env.*
+!.env.example
+
+# prisma sqlite
+prisma/*.db
+prisma/*.db-journal
+
+# logs
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
-# Env & secrets
-.env
-.env*.local
-
-# Prisma (local DB)
-prisma/dev.db
-prisma/dev.db-journal
-
-# OS/IDE
+# misc
 .DS_Store
 Thumbs.db
-.vscode/*
-!.vscode/extensions.json

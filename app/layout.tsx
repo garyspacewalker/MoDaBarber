@@ -42,6 +42,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p>Email: <a className="link" href="mailto:moleferantekane@gmail.com">moleferantekane@gmail.com</a></p>
             </div>
           </div>
+
+          {/* in app/layout.tsx footer block */}
+<div className="text-xs">
+  <a href="/barber/appointments" className="text-brand-black/50 hover:text-brand-blue" rel="nofollow">Barber</a>
+</div>
+
         </footer>
       </body>
     </html>

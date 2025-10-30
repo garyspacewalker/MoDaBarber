@@ -1,42 +1,35 @@
 // app/barber/appointments/page.tsx
-import { prisma } from '../../../lib/prisma';
+import { prisma } from '../../../lib/prisma';   // ⬅️ changed
+import type { Booking } from '@prisma/client';
+import AppointmentList from './ui/AppointmentList';
 
 export const dynamic = 'force-dynamic';
 
-export default async function AppointmentsPage() {
-  const bookings = await prisma.booking.findMany({
+type Service = { name: string; price: number; duration: number };
+type BookingParsed = Booking & { servicesParsed: Service[] };
+
+function parseServices(raw: string): Service[] {
+  try {
+    return JSON.parse(raw) as Service[];
+  } catch {
+    return [];
+  }
+}
+
+export default async function BarberAppointmentsPage() {
+  const rows: Booking[] = await prisma.booking.findMany({
     orderBy: { createdAt: 'desc' },
   });
 
+  const bookings: BookingParsed[] = rows.map((b) => ({
+    ...b,
+    servicesParsed: parseServices(b.services),
+  }));
+
   return (
     <main className="container-xl py-10">
-      <h1 className="text-2xl font-semibold mb-6">Appointments</h1>
-      <div className="space-y-4">
-        {bookings.map((b) => {
-          const services = JSON.parse(b.services) as Array<{ name: string; price: number; duration: number }>;
-          return (
-            <div key={b.id} className="card p-5">
-              <div className="flex flex-wrap gap-6 justify-between">
-                <div>
-                  <div className="font-semibold text-brand-black">{b.date} • {b.time}</div>
-                  <div className="text-sm text-brand-black/70">Ref: {b.id}</div>
-                </div>
-                <div className="text-sm">
-                  <div><b>Customer:</b> {b.first} {b.last ?? ''}</div>
-                  <div><b>Phone:</b> {b.phone}</div>
-                  {b.email && <div><b>Email:</b> {b.email}</div>}
-                </div>
-              </div>
-              <ul className="mt-3 text-sm list-disc pl-5">
-                {services.map((s) => (
-                  <li key={s.name}>{s.name} — R{s.price} • {s.duration} min</li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
-        {!bookings.length && <div className="text-sm text-brand-black/60">No bookings yet.</div>}
-      </div>
+      <h1 className="text-2xl font-semibold mb-6 text-brand-black">Appointments</h1>
+      <AppointmentList initial={bookings} />
     </main>
   );
 }

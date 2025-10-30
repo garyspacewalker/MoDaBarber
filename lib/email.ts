@@ -1,38 +1,45 @@
-// Provider-agnostic email helper: prefers Resend, falls back to SMTP (Nodemailer).
-// Safe: won't crash if no provider is configured.
+// lib/email.ts
+// Works with Resend (preferred) or SMTP (Nodemailer). Sends customer + barber in parallel.
 
 const FROM_RESEND = 'MoDeBarber <onboarding@resend.dev>';
 
-type Mail = {
-  to: string | string[];
-  subject: string;
-  html: string;
-  from?: string;
-};
+export type Service = { name: string; price: number; duration: number };
+type Mail = { to: string | string[]; subject: string; html: string; from?: string };
 
+// ---------- Providers ----------
 async function sendWithResend(mail: Mail) {
   if (!process.env.RESEND_API_KEY) throw new Error('Resend not configured');
   const { Resend } = await import('resend');
   const resend = new Resend(process.env.RESEND_API_KEY);
-  return resend.emails.send({
+  const out = await resend.emails.send({
     from: mail.from || FROM_RESEND,
     to: Array.isArray(mail.to) ? mail.to : [mail.to],
     subject: mail.subject,
     html: mail.html,
   });
+  if (out?.error) throw new Error(`Resend error: ${out.error.message || 'unknown'}`);
+  return out;
 }
 
+
+
+// lib/email.ts
 async function sendWithSMTP(mail: Mail) {
-  const hasSMTP =
-    process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+  const hasSMTP = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
   if (!hasSMTP) throw new Error('SMTP not configured');
+
   const nodemailer = await import('nodemailer');
+  const port = Number(process.env.SMTP_PORT || 587);
+
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: String(process.env.SMTP_PORT || '') === '465',
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    port,
+    secure: String(port) === '465',    // false for 587 (STARTTLS), true for 465 (SSL)
+    auth: { user: process.env.SMTP_USER!, pass: process.env.SMTP_PASS! },
+    requireTLS: String(port) === '587', // nudge STARTTLS
+    tls: { minVersion: 'TLSv1.2' },
   });
+
   return transporter.sendMail({
     from: mail.from || process.env.SMTP_FROM,
     to: mail.to,
@@ -41,66 +48,119 @@ async function sendWithSMTP(mail: Mail) {
   });
 }
 
+
 async function sendEmail(mail: Mail) {
+  // Use SMTP only while developing
+  if (process.env.FORCE_SMTP === '1') {
+    return await sendWithSMTP(mail);
+  }
+
+  // Otherwise try Resend, then fall back to SMTP
   try {
     if (process.env.RESEND_API_KEY) return await sendWithResend(mail);
-  } catch {}
+  } catch (e) {
+    console.error('Resend failed:', e);
+  }
   try {
     return await sendWithSMTP(mail);
-  } catch {}
-  // No email provider configured — don't crash the app.
-  console.warn('No email provider configured (RESEND_API_KEY or SMTP_*). Skipping send.');
+  } catch (e) {
+    console.error('SMTP failed:', e);
+  }
+  console.warn('No email provider configured. Skipping send.');
   return null;
 }
 
-export async function sendBookingEmails(opts: {
-  bookingId: string;
-  customer?: { email?: string; first?: string; last?: string; phone?: string };
-  date: string;
-  time: string;
-  services: Array<{ name: string; price: number; duration: number }>;
-}) {
-  const { customer, date, time, services, bookingId } = opts;
-  const servicesHtml = services.map(s => `<li>${s.name} — R${s.price} • ${s.duration} min</li>`).join('');
 
-  if (customer?.email) {
-    await sendEmail({
-      to: customer.email,
-      subject: `Your MoDeBarber booking — ${date} ${time}`,
-      html: `
-        <h2>Booking confirmed</h2>
-        <p>Hi ${customer.first ?? ''}, your appointment is booked for <b>${date}</b> at <b>${time}</b>.</p>
-        <ul>${servicesHtml}</ul>
-        <p>Ref: <b>${bookingId}</b></p>
-      `,
-    });
-  }
-
-  if (process.env.BARBER_EMAIL) {
-    await sendEmail({
-      to: process.env.BARBER_EMAIL,
-      subject: `New booking — ${date} ${time}`,
-      html: `
-        <h3>New Booking</h3>
-        <p><b>When:</b> ${date} ${time}</p>
-        <p><b>Customer:</b> ${customer?.first ?? ''} ${customer?.last ?? ''} • ${customer?.phone ?? ''} • ${customer?.email ?? ''}</p>
-        <ul>${servicesHtml}</ul>
-        <p>Ref: <b>${bookingId}</b></p>
-      `,
-    });
-  }
+// ---------- Templates ----------
+function toCurrency(n: number) {
+  return `R${Math.round(n)}`;
 }
 
-export async function sendOrderPaidEmail(opts: { orderId: string; email: string; amount: number }) {
-  if (!opts.email) return;
-  await sendEmail({
-    to: [opts.email, process.env.BARBER_EMAIL || ''].filter(Boolean) as string[],
-    subject: `Order paid — ${opts.orderId}`,
-    html: `
-      <h3>Order confirmed</h3>
-      <p>Order: <b>${opts.orderId}</b></p>
-      <p>Total: R${(opts.amount / 100).toFixed(2)}</p>
-      <p>You'll receive shipping updates soon.</p>
-    `,
+function bookingHtml(opts: {
+  title: string;
+  first?: string;
+  last?: string;
+  phone?: string;
+  email?: string;
+  date: string;
+  time: string;
+  services: Service[];
+  ref: string;
+}) {
+  const total = opts.services.reduce((s, x) => s + (x.price || 0), 0);
+  const items = opts.services
+    .map(
+      (s) =>
+        `<tr><td>${s.name}</td><td style="text-align:right">${toCurrency(s.price)}</td></tr>`
+    )
+    .join('');
+  const customer = [opts.first, opts.last].filter(Boolean).join(' ');
+
+  return `
+  <div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu;">
+    <h2>${opts.title}</h2>
+    <p><b>When:</b> ${opts.date} @ ${opts.time}</p>
+    <table style="width:100%;border-collapse:collapse;margin:10px 0 4px 0">
+      ${items}
+      <tr>
+        <td style="border-top:1px solid #e5e7eb;padding-top:6px"><b>Total</b></td>
+        <td style="text-align:right;border-top:1px solid #e5e7eb;padding-top:6px"><b>${toCurrency(
+          total
+        )}</b></td>
+      </tr>
+    </table>
+    <p><b>Customer:</b> ${customer || 'N/A'} • ${opts.phone || ''} • ${opts.email || ''}</p>
+    <p style="font-size:12px;color:#6b7280">Ref: ${opts.ref}</p>
+  </div>`;
+}
+
+// ---------- Public API ----------
+export async function sendBookingEmails(opts: {
+  bookingId: string;
+  customer?: { first?: string; last?: string; phone?: string; email?: string };
+  date: string;
+  time: string;
+  services: Service[];
+}) {
+  const { bookingId, customer, date, time, services } = opts;
+
+  const htmlCustomer = bookingHtml({
+    title: 'Your booking is confirmed ✅',
+    first: customer?.first,
+    last: customer?.last,
+    phone: customer?.phone,
+    email: customer?.email,
+    date, time, services, ref: bookingId,
   });
+
+  const htmlBarber = bookingHtml({
+    title: 'New booking',
+    first: customer?.first,
+    last: customer?.last,
+    phone: customer?.phone,
+    email: customer?.email,
+    date, time, services, ref: bookingId,
+  });
+
+  const barberEmail = (process.env.BARBER_EMAIL || '').trim(); // catch stray spaces
+  console.log('Email targets:', { customer: customer?.email || null, barber: barberEmail || null });
+
+  const jobs: Promise<any>[] = [];
+  if (customer?.email?.trim()) {
+    jobs.push(sendEmail({
+      to: customer.email.trim(),
+      subject: `MoDeBarber — Booking confirmed (${date} ${time})`,
+      html: htmlCustomer,
+    }));
+  }
+  if (barberEmail) {
+    jobs.push(sendEmail({
+      to: barberEmail,
+      subject: `New booking — ${date} ${time}`,
+      html: htmlBarber,
+    }));
+  }
+
+  const results = await Promise.allSettled(jobs);
+  console.log('Email send results:', results);
 }
