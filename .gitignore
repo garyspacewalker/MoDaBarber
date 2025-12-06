@@ -23,3 +23,21 @@ pnpm-debug.log*
 # misc
 .DS_Store
 Thumbs.db
+
+# deps / builds
+node_modules/
+.next/
+out/
+dist/
+
+# env & local config
+.env
+.env.*.local
+.env.local
+
+# prisma
+/prisma/dev.db
+
+# misc
+*.log
+.DS_Store
