@@ -6,19 +6,31 @@ export function ServicesStep({ selection, onNext }: any) {
   const [selectedIds, setSelectedIds] = useState<string[]>(
     selection.services?.map((s: any) => s.id) || []
   );
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/services')
       .then((r) => r.json())
-      .then(setServices);
+      .then(setServices)
+      .catch(() => setError('Failed to load services. Please reload.'));
   }, []);
 
-  const toggle = (id: string) =>
+  const toggle = (id: string) => {
+    setError(null);
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
+  };
 
   const chosen = services.filter((s) => selectedIds.includes(s.id));
+
+  const handleNext = () => {
+    if (chosen.length === 0) {
+      setError('Please select at least one service to continue.');
+      return;
+    }
+    onNext(chosen);
+  };
 
   return (
     <div>
@@ -49,12 +61,14 @@ export function ServicesStep({ selection, onNext }: any) {
         })}
       </div>
 
+      {error && (
+        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <div className="flex justify-end mt-6">
-        <button
-          className="btn-primary"
-          disabled={chosen.length === 0}
-          onClick={() => onNext(chosen)}
-        >
+        <button className="btn-primary" onClick={handleNext}>
           Next
         </button>
       </div>

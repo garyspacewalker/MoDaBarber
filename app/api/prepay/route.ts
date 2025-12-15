@@ -1,14 +1,9 @@
-// app/api/invoice/route.ts
+// app/api/prepay/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { sendMail, renderInvoiceHTML } from '../../../lib/email';
-import catalog from '../../../lib/sampleCatalog';
-import { verifyTurnstile } from '../../../lib/turnstile';
 import { z } from 'zod';
-
-const CartLineZ = z.object({
-  id: z.string().min(1),
-  qty: z.number().int().min(1).max(999),
-});
+import { sendMail, renderInvoiceHTML } from '../../../lib/email';
+// Optional bot check (safe to keep even if you don't have the file yet)
+import { verifyTurnstile } from '../../../lib/turnstile';
 
 const CustomerZ = z.object({
   email: z.string().trim().email().max(120),
@@ -18,16 +13,14 @@ const CustomerZ = z.object({
 });
 
 const BodyZ = z.object({
-  cart: z.array(CartLineZ).min(1),
-  customer: CustomerZ,
+  amount: z.number().finite().positive(), // we’ll enforce minimum server-side per-cut below
   note: z.string().max(1000).optional(),
+  customer: CustomerZ,
 });
 
 const VAT_PERCENT = 0;
 
-const normalizeId = (s: string) => String(s).trim().toLowerCase().replace(/\s+/g, '-');
-
-function makeSimpleInvoiceRef(prefix = 'INV') {
+function simpleRef(prefix = 'PREPAY') {
   const d = new Date();
   const yy = String(d.getFullYear()).slice(-2);
   const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -40,7 +33,7 @@ export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    // Optional bot check
+    // Optional bot check with Cloudflare Turnstile (only runs if secret exists)
     if (process.env.TURNSTILE_SECRET_KEY) {
       const token = req.headers.get('x-turnstile-token') ?? undefined;
       const ok = await verifyTurnstile(token, req.ip);
@@ -49,7 +42,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Zod validation
     const raw = await req.json();
     const parsed = BodyZ.safeParse(raw);
     if (!parsed.success) {
@@ -58,28 +50,55 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const { cart, customer, note } = parsed.data;
+    const { amount: rawAmount, customer, note } = parsed.data;
 
-    // Build lines from trusted catalog
-    const products = new Map(catalog.map((p) => [p.id, p]));
-    const lines = cart.map(({ id, qty }) => {
-      const p = products.get(id) || products.get(normalizeId(id));
-      if (!p) throw new Error(`Unknown product: ${id}`);
-      const unit = Number(p.price);
-      return {
-        id: p.id,
-        name: p.name,
-        unit,
-        qty,
-        lineTotal: +(unit * qty).toFixed(2),
-      };
+    const PRICE = Math.max(1, Number(process.env.PREPAY_CUT_PRICE || 250));
+    const PRODUCT = process.env.PREPAY_PRODUCT_NAME || 'Haircut';
+    const amount = Math.round(Number(rawAmount) * 100) / 100; // 2dp
+
+    if (amount < PRICE) {
+      return NextResponse.json(
+        { error: `Minimum amount is R${PRICE.toFixed(2)} (1 ${PRODUCT.toLowerCase()}).` },
+        { status: 400 }
+      );
+    }
+
+    // Calculate credits
+    const cuts = Math.floor(amount / PRICE);
+    const remainder = +(amount - cuts * PRICE).toFixed(2); // wallet credit remainder (if any)
+
+    // Build invoice lines
+    const lines: {
+      id: string;
+      name: string;
+      unit: number;
+      qty: number;
+      lineTotal: number;
+    }[] = [];
+
+    lines.push({
+      id: 'prepaid-haircut',
+      name: `Prepaid ${PRODUCT} credit`,
+      unit: PRICE,
+      qty: cuts,
+      lineTotal: +(PRICE * cuts).toFixed(2),
     });
+
+    if (remainder > 0) {
+      lines.push({
+        id: 'wallet-credit',
+        name: 'Wallet credit (remaining balance)',
+        unit: remainder,
+        qty: 1,
+        lineTotal: remainder,
+      });
+    }
 
     const subTotal = lines.reduce((s, l) => s + l.lineTotal, 0);
     const vat = VAT_PERCENT > 0 ? +(subTotal * (VAT_PERCENT / 100)).toFixed(2) : 0;
     const total = +(subTotal + vat).toFixed(2);
 
-    const reference = makeSimpleInvoiceRef('INV');
+    const reference = simpleRef('PR');
     const issuedAt = new Date().toISOString();
 
     const bank = {
@@ -96,7 +115,11 @@ export async function POST(req: NextRequest) {
       issuedAt,
       currency: 'ZAR' as const,
       vatPercent: VAT_PERCENT,
-      note: note || '',
+      note:
+        note ||
+        `Prepaid ${PRODUCT.toLowerCase()} credit: ${cuts} × R${PRICE.toFixed(
+          2
+        )}${remainder > 0 ? ` + wallet credit R${remainder.toFixed(2)}` : ''}.`,
       customer,
       lines,
       subTotal,
@@ -116,13 +139,22 @@ export async function POST(req: NextRequest) {
 
     await sendMail({
       to: customer.email,
-      subject: `Invoice ${reference} — Total R${total.toFixed(2)}`,
+      subject: `Prepay invoice ${reference} — Total R${total.toFixed(2)}`,
       html,
     });
 
-    return NextResponse.json({ ok: true, reference, amount: total });
+    // (Optional) Persist an Order/OrderItem here if you want a DB trail
+
+    return NextResponse.json({
+      ok: true,
+      reference,
+      amount: total,
+      cuts,
+      pricePerCut: PRICE,
+      remainder,
+    });
   } catch (err: any) {
-    console.error('Invoice error:', err);
-    return NextResponse.json({ error: err.message || 'Invoice failed' }, { status: 500 });
+    console.error('Prepay error:', err);
+    return NextResponse.json({ error: err.message || 'Prepay failed' }, { status: 500 });
   }
 }

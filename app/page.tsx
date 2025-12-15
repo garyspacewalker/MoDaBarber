@@ -50,11 +50,11 @@ export default function Home() {
               alt: 'Adult fade haircut example',
             },
             {
-              name: 'Clipper Chiskop',
-              minutes: 60,
-              price: 100,
-              image: '/services/Beard-Trim(2).JPG',
-              alt: 'Clean beard shave example',
+              name: 'Kids Cut',
+              minutes: 45,
+              price: 150,
+              image: '/services/Kids-Cut.jpg',
+              alt: 'Kids Cut example',
             },
             {
               name: 'Cut and dye application',
@@ -86,6 +86,16 @@ export default function Home() {
           ))}
         </div>
       </section>
+
+      {/* Prepay CTA (compact) */}
+<div className="mt-8 rounded-2xl border border-black/10 p-4 md:flex md:items-center md:justify-between bg-white/60">
+  <div>
+    <div className="font-medium text-brand-black">Prepay Haircuts</div>
+    <p className="text-sm text-brand-black/70">Pay upfront, redeem later. Quick invoice via email.</p>
+  </div>
+  <a href="/prepay" className="btn-primary mt-3 md:mt-0">Prepay</a>
+</div>
+
     </main>
   );
 }
