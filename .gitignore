@@ -41,3 +41,7 @@ dist/
 # misc
 *.log
 .DS_Store
+
+.env*
+prisma/dev.db
+.next/
