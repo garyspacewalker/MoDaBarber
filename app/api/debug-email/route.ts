@@ -1,21 +1,25 @@
+// app/api/debug-email/route.ts
 import { NextResponse } from 'next/server';
-import { sendBookingEmails } from '../../../lib/email';
+import { sendMail } from '../../../lib/email';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic'; // do not prerender
+export const revalidate = 0;
 
 export async function GET() {
-  const to = process.env.BARBER_EMAIL || 'you@example.com';
-  const now = new Date();
-  const date = now.toISOString().slice(0, 10);
-  const time = now.toTimeString().slice(0, 5);
+  // Block in production / on Vercel builds
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL) {
+    return NextResponse.json({ error: 'Not available in production' }, { status: 404 });
+  }
 
-  const res = await sendBookingEmails({
-    bookingId: 'TEST-' + Math.random().toString(36).slice(2, 8),
-    customer: { first: 'Test', last: 'User', email: to },
-    date,
-    time,
-    services: [{ name: 'Test Cut', price: 150, duration: 45 }],
-  });
-
-  return NextResponse.json({ sent: true, to, results: res });
+  try {
+    await sendMail({
+      to: process.env.BARBER_EMAIL || 'test@example.com',
+      subject: 'Debug email test',
+      html: '<p>It works.</p>',
+    });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
+  }
 }
