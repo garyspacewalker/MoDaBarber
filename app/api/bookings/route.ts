@@ -73,13 +73,7 @@ function buildDepositInvoice(opts: {
     note: `Booking deposit to confirm your appointment (Booking #${bookingId}) for ${date} @ ${time}. Please pay within 48 hours using the exact reference.`,
     customer,
     lines: [
-      {
-        id: 'booking-deposit',
-        name: `Booking deposit — ${date} ${time}`,
-        unit: amountRands,
-        qty: 1,
-        lineTotal: amountRands,
-      },
+      { id: 'booking-deposit', name: `Booking deposit — ${date} ${time}`, unit: amountRands, qty: 1, lineTotal: amountRands },
     ],
     subTotal: amountRands,
     vat: 0,
@@ -92,27 +86,22 @@ function buildDepositInvoice(opts: {
 
 export async function POST(req: NextRequest) {
   try {
-    /** 1) (Optional) BOT check via Cloudflare Turnstile */
+    // 1) Optional BOT check via Cloudflare Turnstile
     if (process.env.TURNSTILE_SECRET_KEY) {
       const token = req.headers.get('x-turnstile-token') ?? undefined;
       const ok = await verifyTurnstile(token, req.ip);
-      if (!ok) {
-        return NextResponse.json({ error: 'Bot verification failed.' }, { status: 400 });
-      }
+      if (!ok) return NextResponse.json({ error: 'Bot verification failed.' }, { status: 400 });
     }
 
-    /** 2) VALIDATE BODY with Zod */
+    // 2) Validate body
     const payload = await req.json();
     const parsed = BookingZ.safeParse(payload);
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Invalid data', details: parsed.error.flatten() },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid data', details: parsed.error.flatten() }, { status: 400 });
     }
     const { services, date, time, customer } = parsed.data;
 
-    /** 3) Persist booking */
+    // 3) Persist booking
     const booking = await prisma.booking.create({
       data: {
         date,
@@ -125,18 +114,17 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    /** 4) Email customer + admin */
+    // 4) Emails (customer + admin)
     sendBookingEmails({
       bookingId: booking.id,
       customer,
       date,
       time,
       services: services as EmailServiceItem[],
-    }).catch(console.error);
+    }).catch(err => console.error('sendBookingEmails error:', err));
 
-    /** 5) Send R100 deposit invoice (configurable) if email provided */
+    // 5) Deposit invoice if we have an email
     const amount = Math.max(1, Number(process.env.BOOKING_DEPOSIT_RANDS || 100));
-
     if (customer.email) {
       const reference = makeVerySimpleRef(booking.id, 'MB');
       const invoice = buildDepositInvoice({
@@ -154,16 +142,15 @@ export async function POST(req: NextRequest) {
       });
 
       const html = renderInvoiceHTML(invoice);
-      await sendMail({
-        to: customer.email,
-        subject: `Booking deposit ${reference} — R${amount.toFixed(2)}`,
-        html,
-      });
+      await sendMail({ to: customer.email, subject: `Booking deposit ${reference} — R${amount.toFixed(2)}`, html });
+
+      // include details for the UI
+      return NextResponse.json({ ok: true, id: booking.id, deposit: { amount, reference, sentTo: customer.email } });
     }
 
-    return NextResponse.json({ ok: true, id: booking.id });
-  } catch (e) {
-    console.error(e);
+    return NextResponse.json({ ok: true, id: booking.id, warning: 'Booking created, but no email provided — deposit invoice not sent.' });
+  } catch (e:any) {
+    console.error('Booking route error:', e);
     return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 });
   }
 }
