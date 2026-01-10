@@ -104,9 +104,13 @@ export default function ShopPage() {
   }, 0);
 
   const validEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+  const canSubmit = !sending && cart.length > 0 && validEmail(email);
 
   async function createInvoice() {
-    // Client-side guards with clear messages
+    // UI guard (prevents double-clicks)
+    if (sending) return;
+
+    // Friendly client checks
     if (!cart.length) {
       push('Your cart is empty — add an item first.', 'warn');
       return;
@@ -132,9 +136,19 @@ export default function ShopPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Failed to create invoice');
+      if (!res.ok || !data?.ok) throw new Error(data?.error || 'Failed to create invoice');
+
       push(`Invoice ${data.reference} created for R${(data.amount ?? 0).toFixed(2)}. Check your email.`);
-      // setCart([]); // uncomment to clear cart after issuing an invoice
+
+      // ✅ CLEAR everything on success to avoid accidental duplicates
+      setCart([]);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setAddress('');
+      setNote('');
+      // localStorage will be updated by the cart effect
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e: any) {
       push(String(e.message || e), 'error');
     } finally {
@@ -158,7 +172,7 @@ export default function ShopPage() {
                   src={p.image}
                   alt={p.name}
                   loading="lazy"
-                  className="absolute inset-0 h-full w-full object-contain"
+                  className="absolute inset-0 h-full w-full object-cover"
                 />
               </div>
 
@@ -208,7 +222,9 @@ export default function ShopPage() {
           </div>
 
           <button
-            disabled={sending}
+            disabled={!canSubmit}
+            aria-disabled={!canSubmit}
+            aria-busy={sending}
             className="btn-primary mt-4 w-full"
             onClick={createInvoice}
           >

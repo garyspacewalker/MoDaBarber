@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { sendMail, renderInvoiceHTML } from '../../../lib/email';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { newRef } from '../../../lib/refs';
+import { lockOnce } from '../../../lib/inflight';
 
 const CustomerZ = z.object({
   email: z.string().trim().email().max(120),
@@ -23,7 +24,6 @@ export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    // Optional bot check
     if (process.env.TURNSTILE_SECRET_KEY) {
       const token = req.headers.get('x-turnstile-token') ?? undefined;
       const ok = await verifyTurnstile(token, req.ip);
@@ -31,29 +31,10 @@ export async function POST(req: NextRequest) {
     }
 
     const raw = await req.json();
-
-    // Early guard for missing customer/email to give a friendly message
-    if (!raw?.customer || !raw?.customer?.email) {
-      return NextResponse.json(
-        { error: 'Please enter your details first (at minimum a valid email address) before creating the invoice.' },
-        { status: 400 }
-      );
-    }
-
-    // Zod validation
     const parsed = BodyZ.safeParse(raw);
     if (!parsed.success) {
-      // If the validation error is specifically the email, show the friendly message
-      const emailIssue = parsed.error.issues.find(i => i.path.join('.') === 'customer.email');
-      if (emailIssue) {
-        return NextResponse.json(
-          { error: 'Please enter a valid email address before creating the invoice.' },
-          { status: 400 }
-        );
-      }
-      return NextResponse.json({ error: 'Invalid data', details: parsed.error.flatten() }, { status: 400 });
+      return NextResponse.json({ error: 'Please enter your details (email & amount) before creating the invoice.' }, { status: 400 });
     }
-
     const { amount: rawAmount, customer, note } = parsed.data;
 
     const PRICE = Math.max(1, Number(process.env.PREPAY_CUT_PRICE || 250));
@@ -63,7 +44,7 @@ export async function POST(req: NextRequest) {
     if (amount < PRICE) {
       return NextResponse.json(
         { error: `Minimum amount is R${PRICE.toFixed(2)} (1 ${PRODUCT.toLowerCase()}).` },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -81,6 +62,12 @@ export async function POST(req: NextRequest) {
 
     const reference = newRef('PR'); // 6-digit suffix
     const issuedAt = new Date().toISOString();
+
+    // 🔒 prevent rapid duplicate emails for same user/amount
+    const lockKey = `prepay:${customer.email}:${total}`;
+    if (!lockOnce(lockKey)) {
+      return NextResponse.json({ ok: true, duplicate: true, reference, amount: total });
+    }
 
     const bank = {
       accountName: process.env.SHOP_BANK_ACCOUNT_NAME || 'YOUR BUSINESS NAME',
@@ -116,11 +103,7 @@ export async function POST(req: NextRequest) {
     };
 
     const html = renderInvoiceHTML(invoice);
-    await sendMail({
-      to: customer.email,
-      subject: `Prepay invoice ${reference} — Total R${total.toFixed(2)}`,
-      html,
-    });
+    await sendMail({ to: customer.email, subject: `Prepay invoice ${reference} — Total R${total.toFixed(2)}`, html });
 
     return NextResponse.json({ ok: true, reference, amount: total, cuts, pricePerCut: PRICE, remainder });
   } catch (err: any) {

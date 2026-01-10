@@ -1,9 +1,9 @@
-// app/api/invoice/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { sendMail, renderInvoiceHTML } from '../../../lib/email';
 import catalog from '../../../lib/sampleCatalog';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { newRef } from '../../../lib/refs';
+import { lockOnce } from '../../../lib/inflight';
 import { z } from 'zod';
 
 const CartLineZ = z.object({
@@ -57,8 +57,14 @@ export async function POST(req: NextRequest) {
     const vat = VAT_PERCENT > 0 ? +(subTotal * (VAT_PERCENT / 100)).toFixed(2) : 0;
     const total = +(subTotal + vat).toFixed(2);
 
-    const reference = newRef('INV'); // ← 6-digit numeric suffix
+    const reference = newRef('INV'); // 6-digit suffix
     const issuedAt = new Date().toISOString();
+
+    // 🔒 prevent rapid duplicate emails for same user/amount/cart size
+    const lockKey = `invoice:${customer.email}:${total}:${lines.length}`;
+    if (!lockOnce(lockKey)) {
+      return NextResponse.json({ ok: true, duplicate: true, reference, amount: total });
+    }
 
     const bank = {
       accountName: process.env.SHOP_BANK_ACCOUNT_NAME || 'YOUR BUSINESS NAME',

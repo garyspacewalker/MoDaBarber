@@ -1,4 +1,3 @@
-// app/prepay/page.tsx
 'use client';
 
 import { useMemo, useState } from 'react';
@@ -26,8 +25,10 @@ export default function PrepayPage() {
   const presets = [250, 500, 750, 1000, 1500];
 
   async function submit() {
+    if (sending) return; // guard against double clicks
     setError(null);
-    if (!email) {
+
+    if (!email.trim()) {
       setError('Please enter your email to receive the invoice.');
       return;
     }
@@ -47,17 +48,28 @@ export default function PrepayPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount,
-          note,
+          note: note || undefined,
           customer: { email, name, phone, address },
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Could not create invoice');
+      if (!res.ok || !data?.ok) throw new Error(data?.error || 'Could not create invoice');
+
       alert(
         `Invoice ${data.reference} created for R${(data.amount ?? 0).toFixed(
           2
         )}. Check your email.`
       );
+
+      // ✅ CLEAR everything so the user can't accidentally resubmit
+      setAmount(DEFAULT_PRICE);
+      setName('');
+      setEmail('');
+      setPhone('');
+      setAddress('');
+      setNote('');
+      // optionally scroll back up so the success is obvious
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e: any) {
       setError(String(e.message || e));
     } finally {
@@ -86,6 +98,7 @@ export default function PrepayPage() {
                   key={v}
                   className={`btn ${amount === v ? 'btn-primary' : 'btn-outline'}`}
                   onClick={() => setAmount(v)}
+                  aria-pressed={amount === v}
                 >
                   R{v}
                 </button>
@@ -180,6 +193,7 @@ export default function PrepayPage() {
             disabled={!email || sending || cuts < 1}
             className="btn-primary mt-4 w-full"
             onClick={submit}
+            aria-busy={sending}
           >
             {sending ? 'Creating…' : 'Create Prepay Invoice'}
           </button>
