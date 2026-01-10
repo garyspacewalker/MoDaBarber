@@ -20,7 +20,7 @@ export default function ContactPage() {
 
             <div className="space-y-2 text-brand-black">
               <div><b>Phone:</b> <a className="link" href="tel:+27672791851">067 279 1851</a></div>
-              <div><b>Email:</b> <a className="link" href="mailto:moleferantekane@gmail.com">moleferantekane@gmail.com</a></div>
+              <div><b>Email:</b> <a className="link" href="mailto:modebarber1@gmail.com">modebarber1@gmail.com</a></div>
               <div><b>Hours:</b> Mon–Sat 09:00–18:00</div>
               <div className="text-sm text-brand-black/60 mt-1">
                 The QR code opens WhatsApp directly to MoDeBarber’s chat.

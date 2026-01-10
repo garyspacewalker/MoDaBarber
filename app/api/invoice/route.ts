@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { sendMail, renderInvoiceHTML } from '../../../lib/email';
 import catalog from '../../../lib/sampleCatalog';
 import { verifyTurnstile } from '../../../lib/turnstile';
+import { newRef } from '../../../lib/refs';
 import { z } from 'zod';
 
 const CartLineZ = z.object({
@@ -24,62 +25,39 @@ const BodyZ = z.object({
 });
 
 const VAT_PERCENT = 0;
-
 const normalizeId = (s: string) => String(s).trim().toLowerCase().replace(/\s+/g, '-');
-
-function makeSimpleInvoiceRef(prefix = 'INV') {
-  const d = new Date();
-  const yy = String(d.getFullYear()).slice(-2);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const rnd = Math.floor(Math.random() * 9000 + 1000); // 4 digits
-  return `${prefix}${yy}${mm}${dd}${rnd}`;
-}
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    // Optional bot check
     if (process.env.TURNSTILE_SECRET_KEY) {
       const token = req.headers.get('x-turnstile-token') ?? undefined;
       const ok = await verifyTurnstile(token, req.ip);
-      if (!ok) {
-        return NextResponse.json({ error: 'Bot verification failed.' }, { status: 400 });
-      }
+      if (!ok) return NextResponse.json({ error: 'Bot verification failed.' }, { status: 400 });
     }
 
-    // Zod validation
     const raw = await req.json();
     const parsed = BodyZ.safeParse(raw);
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Invalid data', details: parsed.error.flatten() },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Invalid data', details: parsed.error.flatten() }, { status: 400 });
     }
     const { cart, customer, note } = parsed.data;
 
-    // Build lines from trusted catalog
+    // Build lines from catalog
     const products = new Map(catalog.map((p) => [p.id, p]));
     const lines = cart.map(({ id, qty }) => {
       const p = products.get(id) || products.get(normalizeId(id));
       if (!p) throw new Error(`Unknown product: ${id}`);
       const unit = Number(p.price);
-      return {
-        id: p.id,
-        name: p.name,
-        unit,
-        qty,
-        lineTotal: +(unit * qty).toFixed(2),
-      };
+      return { id: p.id, name: p.name, unit, qty, lineTotal: +(unit * qty).toFixed(2) };
     });
 
     const subTotal = lines.reduce((s, l) => s + l.lineTotal, 0);
     const vat = VAT_PERCENT > 0 ? +(subTotal * (VAT_PERCENT / 100)).toFixed(2) : 0;
     const total = +(subTotal + vat).toFixed(2);
 
-    const reference = makeSimpleInvoiceRef('INV');
+    const reference = newRef('INV'); // ← 6-digit numeric suffix
     const issuedAt = new Date().toISOString();
 
     const bank = {
@@ -87,7 +65,6 @@ export async function POST(req: NextRequest) {
       bankName: process.env.SHOP_BANK_BANK_NAME || 'Your Bank',
       accountNumber: process.env.SHOP_BANK_ACCOUNT_NUMBER || '0000000000',
       branchCode: process.env.SHOP_BANK_BRANCH_CODE || '000000',
-      swiftBic: process.env.SHOP_BANK_SWIFT || 'XXXXXX',
       paymentRef: reference,
     };
 
@@ -113,12 +90,7 @@ export async function POST(req: NextRequest) {
     };
 
     const html = renderInvoiceHTML(invoice);
-
-    await sendMail({
-      to: customer.email,
-      subject: `Invoice ${reference} — Total R${total.toFixed(2)}`,
-      html,
-    });
+    await sendMail({ to: customer.email, subject: `Invoice ${reference} — Total R${total.toFixed(2)}`, html });
 
     return NextResponse.json({ ok: true, reference, amount: total });
   } catch (err: any) {

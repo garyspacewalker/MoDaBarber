@@ -1,8 +1,14 @@
 // app/api/bookings/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '../../../lib/prisma';
-import { sendBookingEmails, type EmailServiceItem, sendMail, renderInvoiceHTML } from '../../../lib/email';
+import {
+  sendBookingEmails,
+  type EmailServiceItem,
+  sendMail,
+  renderInvoiceHTML,
+} from '../../../lib/email';
 import { verifyTurnstile } from '../../../lib/turnstile';
+import { newRef } from '../../../lib/refs';
 import { z } from 'zod';
 
 /** ==== ZOD SCHEMAS ==== */
@@ -27,73 +33,16 @@ const BookingZ = z.object({
   customer: CustomerZ,
 });
 
-/** ==== SIMPLE REFERENCE ==== */
-function makeVerySimpleRef(bookingId: string | number, prefix = 'MB') {
-  const d = new Date();
-  const yy = String(d.getFullYear()).slice(-2);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const idNum = String(bookingId).replace(/\D/g, '');
-  const last4 = idNum.slice(-4).padStart(4, '0');
-  return `${prefix}${yy}${mm}${dd}${last4}`;
-}
-
-/** Build a minimal invoice object our template expects */
-function buildDepositInvoice(opts: {
-  customer: { email: string; name?: string; phone?: string; address?: string };
-  bookingId: string | number;
-  date: string;
-  time: string;
-  amountRands: number;
-  reference: string;
-}) {
-  const { customer, bookingId, date, time, amountRands, reference } = opts;
-
-  const bank = {
-    accountName: process.env.SHOP_BANK_ACCOUNT_NAME || 'YOUR BUSINESS NAME',
-    bankName: process.env.SHOP_BANK_BANK_NAME || 'Your Bank',
-    accountNumber: process.env.SHOP_BANK_ACCOUNT_NUMBER || '0000000000',
-    branchCode: process.env.SHOP_BANK_BRANCH_CODE || '000000',
-    swiftBic: process.env.SHOP_BANK_SWIFT || 'XXXXXX',
-    paymentRef: reference,
-  };
-
-  const business = {
-    name: process.env.BUSINESS_NAME || 'ModeBarber',
-    phone: process.env.BUSINESS_PHONE || '',
-    email: process.env.BUSINESS_EMAIL || '',
-    address: process.env.BUSINESS_ADDRESS || '',
-  };
-
-  return {
-    reference,
-    issuedAt: new Date().toISOString(),
-    currency: 'ZAR' as const,
-    vatPercent: 0,
-    note: `Booking deposit to confirm your appointment (Booking #${bookingId}) for ${date} @ ${time}. Please pay within 48 hours using the exact reference.`,
-    customer,
-    lines: [
-      { id: 'booking-deposit', name: `Booking deposit — ${date} ${time}`, unit: amountRands, qty: 1, lineTotal: amountRands },
-    ],
-    subTotal: amountRands,
-    vat: 0,
-    total: amountRands,
-    bank,
-    status: 'Pending Payment' as const,
-    business,
-  };
-}
-
 export async function POST(req: NextRequest) {
   try {
-    // 1) Optional BOT check via Cloudflare Turnstile
+    // 1) Optional bot check
     if (process.env.TURNSTILE_SECRET_KEY) {
       const token = req.headers.get('x-turnstile-token') ?? undefined;
       const ok = await verifyTurnstile(token, req.ip);
       if (!ok) return NextResponse.json({ error: 'Bot verification failed.' }, { status: 400 });
     }
 
-    // 2) Validate body
+    // 2) Validate
     const payload = await req.json();
     const parsed = BookingZ.safeParse(payload);
     if (!parsed.success) {
@@ -101,7 +50,7 @@ export async function POST(req: NextRequest) {
     }
     const { services, date, time, customer } = parsed.data;
 
-    // 3) Persist booking
+    // 3) Save
     const booking = await prisma.booking.create({
       data: {
         date,
@@ -121,35 +70,56 @@ export async function POST(req: NextRequest) {
       date,
       time,
       services: services as EmailServiceItem[],
-    }).catch(err => console.error('sendBookingEmails error:', err));
+    }).catch(console.error);
 
-    // 5) Deposit invoice if we have an email
+    // 5) Send R100 deposit invoice if email present
     const amount = Math.max(1, Number(process.env.BOOKING_DEPOSIT_RANDS || 100));
     if (customer.email) {
-      const reference = makeVerySimpleRef(booking.id, 'MB');
-      const invoice = buildDepositInvoice({
+      const reference = newRef('MB'); // 6-digit suffix
+      const bank = {
+        accountName: process.env.SHOP_BANK_ACCOUNT_NAME || 'YOUR BUSINESS NAME',
+        bankName: process.env.SHOP_BANK_BANK_NAME || 'Your Bank',
+        accountNumber: process.env.SHOP_BANK_ACCOUNT_NUMBER || '0000000000',
+        branchCode: process.env.SHOP_BANK_BRANCH_CODE || '000000',
+        paymentRef: reference,
+      };
+      const invoice = {
+        reference,
+        issuedAt: new Date().toISOString(),
+        currency: 'ZAR' as const,
+        vatPercent: 0,
+        note: `Booking deposit to confirm your appointment (Booking #${booking.id}) for ${date} @ ${time}. Please pay within 48 hours using the exact reference.`,
         customer: {
           email: customer.email,
           name: [customer.first, customer.last].filter(Boolean).join(' ') || undefined,
           phone: customer.phone,
           address: customer.address,
         },
-        bookingId: booking.id,
-        date,
-        time,
-        amountRands: amount,
-        reference,
-      });
-
+        lines: [
+          { id: 'booking-deposit', name: `Booking deposit — ${date} ${time}`, unit: amount, qty: 1, lineTotal: amount },
+        ],
+        subTotal: amount,
+        vat: 0,
+        total: amount,
+        bank,
+        status: 'Pending Payment' as const,
+        business: {
+          name: process.env.BUSINESS_NAME || 'ModeBarber',
+          phone: process.env.BUSINESS_PHONE || '',
+          email: process.env.BUSINESS_EMAIL || '',
+          address: process.env.BUSINESS_ADDRESS || '',
+        },
+      };
       const html = renderInvoiceHTML(invoice);
-      await sendMail({ to: customer.email, subject: `Booking deposit ${reference} — R${amount.toFixed(2)}`, html });
-
-      // include details for the UI
-      return NextResponse.json({ ok: true, id: booking.id, deposit: { amount, reference, sentTo: customer.email } });
+      await sendMail({
+        to: customer.email,
+        subject: `Booking deposit ${reference} — R${amount.toFixed(2)}`,
+        html,
+      });
     }
 
-    return NextResponse.json({ ok: true, id: booking.id, warning: 'Booking created, but no email provided — deposit invoice not sent.' });
-  } catch (e:any) {
+    return NextResponse.json({ ok: true, id: booking.id });
+  } catch (e) {
     console.error('Booking route error:', e);
     return NextResponse.json({ error: 'Failed to create booking' }, { status: 500 });
   }

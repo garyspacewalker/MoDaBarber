@@ -1,10 +1,13 @@
-// app/page.tsx
 import Link from 'next/link';
 import Image from 'next/image';
+import PromoBanner from '../components/PromoBanner';
 
 export default function Home() {
   return (
     <main>
+      {/* PROMO */}
+      <PromoBanner start="2026-01-10" end="2026-01-14" />
+
       {/* HERO */}
       <section className="container-xl py-12 md:py-20">
         <div className="grid md:grid-cols-2 gap-10 items-center">
@@ -22,7 +25,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Image fills its container */}
           <div className="card overflow-hidden relative h-[360px]">
             <Image
               src="/MDB.png"
@@ -36,7 +38,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* POPULAR SERVICES with full-image fit (no crop) */}
+      {/* POPULAR SERVICES */}
       <section className="container-xl py-12">
         <h2 className="text-2xl font-semibold mb-6 text-brand-black">Popular Services</h2>
 
@@ -65,13 +67,13 @@ export default function Home() {
             },
           ].map((s) => (
             <div key={s.name} className="card overflow-hidden">
-              {/* Image fills the block without cropping (letterboxes if aspect differs) */}
+              {/* Keep same aspect, but fill the box */}
               <div className="relative w-full aspect-[4/3] bg-brand-black/5">
                 <Image
                   src={s.image}
                   alt={s.alt}
                   fill
-                  className="object-contain"
+                  className="object-cover"
                   sizes="(min-width:1024px) 33vw, (min-width:640px) 50vw, 100vw"
                 />
               </div>
@@ -88,14 +90,15 @@ export default function Home() {
       </section>
 
       {/* Prepay CTA (compact) */}
-<div className="mt-8 rounded-2xl border border-black/10 p-4 md:flex md:items-center md:justify-between bg-white/60">
-  <div>
-    <div className="font-medium text-brand-black">Prepay Haircuts</div>
-    <p className="text-sm text-brand-black/70">Pay upfront, redeem later. Quick invoice via email.</p>
-  </div>
-  <a href="/prepay" className="btn-primary mt-3 md:mt-0">Prepay</a>
-</div>
-
+      <div className="container-xl">
+        <div className="mt-8 rounded-2xl border border-black/10 p-4 md:flex md:items-center md:justify-between bg-white/60">
+          <div>
+            <div className="font-medium text-brand-black">Prepay Haircuts</div>
+            <p className="text-sm text-brand-black/70">Pay upfront, redeem later. Quick invoice via email.</p>
+          </div>
+          <a href="/prepay" className="btn-primary mt-3 md:mt-0">Prepay</a>
+        </div>
+      </div>
     </main>
   );
 }

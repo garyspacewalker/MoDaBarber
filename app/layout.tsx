@@ -69,8 +69,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <p>Phone: 067 279 1851</p>
               <p>
                 Email:{' '}
-                <a className="link" href="mailto:moleferantekane@gmail.com">
-                  moleferantekane@gmail.com
+                <a className="link" href="mailto:modebarber1@gmail.com">
+                  modebarber1@gmail.com
                 </a>
               </p>
             </div>
