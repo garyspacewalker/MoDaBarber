@@ -42,11 +42,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <img src="/logo.jpg" alt="MoDeBarber" className="h-10 w-10 rounded-full" />
               <span className="font-semibold text-xl text-brand-black">MoDeBarber</span>
             </Link>
-            <nav className="flex items-center gap-6 text-sm">
-              <Link className="nav-link" href="/book">Book</Link>
-              <Link className="nav-link" href="/shop">Shop</Link>
-              <Link className="nav-link" href="/contact">Contact</Link>
-            </nav>
+           <nav className="flex items-center gap-6 text-sm">
+  <Link className="nav-link" href="/book">Book</Link>
+  <Link className="nav-link" href="/shop">Shop</Link>
+  <Link className="nav-link" href="/prices">Prices</Link> {/* ← new */}
+  <Link className="nav-link" href="/contact">Contact</Link>
+</nav>
+
           </div>
         </header>
 
@@ -74,17 +76,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </a>
               </p>
             </div>
-          </div>
-
-          {/* small admin link */}
-          <div className="container-xl pb-6 text-xs">
-            <a
-              href="/barber/appointments"
-              className="text-brand-white/70 hover:text-brand-blue"
-              rel="nofollow"
-            >
-              Barber
-            </a>
           </div>
         </footer>
       </body>
