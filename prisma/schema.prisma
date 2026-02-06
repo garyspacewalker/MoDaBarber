@@ -9,8 +9,13 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum BookingLocation {
+  HOUSE
+  SHOP
+}
+
 model Booking {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   date        String
   time        String
   services    String
@@ -20,12 +25,15 @@ model Booking {
   email       String?
   notes       String?
 
-  status      String   @default("CONFIRMED")
-  archived    Boolean  @default(false)
+  // NEW: where the appointment happens
+  location    BookingLocation  @default(HOUSE)
+
+  status      String           @default("CONFIRMED")
+  archived    Boolean          @default(false)
   completedAt DateTime?
   canceledAt  DateTime?
-  updatedAt   DateTime @updatedAt
-  createdAt   DateTime @default(now())
+  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime         @default(now())
 }
 
 model Order {
@@ -58,4 +66,13 @@ model OrderItem {
   quantity   Int     @default(1)
 
   order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  name      String?
+  rating    Int      // 1..5
+  comment   String   // 10..1000 chars
+  approved  Boolean  @default(true) // set false if you want moderation
+  createdAt DateTime @default(now())
 }

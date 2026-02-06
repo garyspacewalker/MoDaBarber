@@ -4,6 +4,8 @@ import { ServicesStep } from '../../components/booking/ServicesStep';
 import { DateTimeStep } from '../../components/booking/DateTimeStep';
 import { DetailsStep } from '../../components/booking/DetailsStep';
 
+type Location = 'house' | 'shop';
+
 export default function BookPage() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -14,59 +16,78 @@ export default function BookPage() {
     date: '',
     time: '',
     customer: {},
+    location: 'house' as Location,
   });
 
   const nextServices = (services: any[]) => {
     setSelection((s: any) => ({ ...s, services }));
     setStep(2);
   };
+
   const nextDateTime = (date: string, time: string) => {
     setSelection((s: any) => ({ ...s, date, time }));
     setStep(3);
   };
 
-  const confirm = async (customer: any) => {
-    if (loading) return; // guard
+  const setLocation = (loc: Location) => {
+    setSelection((s: any) => ({
+      ...s,
+      location: loc,
+      services: [], // ✅ reset services when changing location
+      date: '',
+      time: '',
+    }));
+    setStep(1); // ✅ go back to the start
+    setGlobalError(null);
+  };
+
+  async function confirm(customer: any) {
     setGlobalError(null);
     setLoading(true);
+
     try {
       const payload = {
         services: selection.services,
         date: selection.date,
         time: selection.time,
         customer,
+        location: selection.location,
       };
+
       const res = await fetch('/api/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+
       const data = await res.json();
+      if (!res.ok || !data?.ok) throw new Error(data?.error || 'Booking failed');
 
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || 'Booking failed');
-      }
-
-      // Success UI
       if (data?.deposit?.reference) {
         alert(
-          `Booking confirmed!\n\nA R${(data.deposit.amount ?? 100).toFixed(
+          `Booking confirmed (${data.location}).\n\nA R${(data.deposit.amount ?? 100).toFixed(
             2
           )} deposit invoice was emailed to you.\nReference: ${data.deposit.reference}\n\nPlease pay within 48 hours using the exact reference.`
         );
       } else {
-        alert('Booking confirmed! Check your email.');
+        alert(`Booking confirmed (${data.location}). Check your email.`);
       }
 
-      // ✅ CLEAR everything right away to prevent accidental re-clicks
-      setSelection({ services: [], date: '', time: '', customer: {} });
+      // ✅ Clear on success (prevents double submit)
       setStep(1);
+      setSelection((s: any) => ({
+        services: [],
+        date: '',
+        time: '',
+        customer: {},
+        location: s.location, // keep last chosen location
+      }));
     } catch (err: any) {
       setGlobalError(String(err.message || err));
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <main className="container-xl py-10">
@@ -75,6 +96,31 @@ export default function BookPage() {
           {globalError}
         </div>
       )}
+
+      {/* House vs Shop switch */}
+      <div className="mb-6 flex items-center gap-2">
+        <span className="text-sm text-brand-black/70">Location:</span>
+        <div className="rounded-xl border border-black/10 bg-white p-1">
+          <button
+            type="button"
+            className={`px-3 py-1 rounded-lg text-sm ${
+              selection.location === 'house' ? 'bg-brand-black text-white' : ''
+            }`}
+            onClick={() => setLocation('house')}
+          >
+            House Call
+          </button>
+          <button
+            type="button"
+            className={`px-3 py-1 rounded-lg text-sm ${
+              selection.location === 'shop' ? 'bg-brand-black text-white' : ''
+            }`}
+            onClick={() => setLocation('shop')}
+          >
+            In-Store
+          </button>
+        </div>
+      </div>
 
       {step === 1 && <ServicesStep selection={selection} onNext={nextServices} />}
       {step === 2 && (
@@ -89,7 +135,7 @@ export default function BookPage() {
           selection={selection}
           onBack={() => setStep(2)}
           onConfirm={confirm}
-          loading={loading}      // keeps the Confirm button disabled during submit
+          loading={loading}
         />
       )}
     </main>
