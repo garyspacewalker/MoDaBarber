@@ -50,9 +50,9 @@ export default function Home() {
 
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[
-              { name: 'Haircut and Shave', minutes: 90, price: 250, image: '/services/Cut-Shave(6).jfif', alt: 'Adult fade haircut example' },
-              { name: 'Kids HairCut', minutes: 45, price: 150, image: '/services/Kids-Cut(2).jfif', alt: 'Kids Cut example' },
-              { name: 'Haircut and dye application', minutes: 150, price: 300, image: '/services/Cut-Dye(7).jfif', alt: 'Cut and dye application example' },
+              { name: 'Haircut and Shave', minutes: 90, price: 250, image: '/services/Cut-Shave(6).jpg', alt: 'Adult fade haircut example' },
+              { name: 'Kids HairCut', minutes: 45, price: 150, image: '/services/Kids-Cut(2).jpg', alt: 'Kids Cut example' },
+              { name: 'Haircut and dye application', minutes: 150, price: 300, image: '/services/Cut-Dye(7).jpg', alt: 'Cut and dye application example' },
             ].map((s) => (
               <div key={s.name} className="card overflow-hidden">
                 <div className="relative w-full aspect-[4/3] bg-brand-black/5">
